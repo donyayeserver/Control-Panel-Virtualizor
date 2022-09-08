@@ -8,7 +8,7 @@ setenforce 0 >> /dev/null 2>&1
 #iptables -P INPUT ACCEPT >> /dev/null 2>&1
 
 #FILEREPO=http://files.virtualizor.com
-FILEREPO=https://raw.githubusercontent.com/masterappleir/masterapple/master/
+https://raw.githubusercontent.com/donyayeserver/Control-Panel-Virtualizor/main/
 LOG=/root/virtualizor.log
 
 #----------------------------------
@@ -21,7 +21,7 @@ else
 fi
 
 echo "-----------------------------------------------"
-echo " Welcome to Softaculous Virtualizor Installer"
+echo " Welcome to Softaculous Virtualizor Installer (Power BY donyayeserver)"
 echo "-----------------------------------------------"
 echo " "
 
@@ -206,9 +206,9 @@ echo "3) Downloading and Installing Virtualizor"
 echo "3) Downloading and Installing Virtualizor" >> $LOG 2>&1
 
 # Get our installer
-wget -O /usr/local/virtualizor/install.php $FILEREPO/install.inc >> $LOG 2>&1
+wget -O /usr/local/virtualizor/install.php $FILEREPO/install.inc?token=GHSAT0AAAAAABYR32W74EEYPNYCZRU235PAYY2KSVA >> $LOG 2>&1
 #echo "copying install file"
-#mv install.inc /usr/local/virtualizor/install.php
+#mv install.inc?token=GHSAT0AAAAAABYR32W74EEYPNYCZRU235PAYY2KSVA /usr/local/virtualizor/install.php
 
 # Run our installer
 /usr/local/emps/bin/php -d zend_extension=/usr/local/emps/lib/php/ioncube_loader_lin_5.3.so /usr/local/virtualizor/install.php $*
