@@ -7,9 +7,17 @@ setenforce 0 >> /dev/null 2>&1
 #iptables -F >> /dev/null 2>&1
 #iptables -P INPUT ACCEPT >> /dev/null 2>&1
 
-#FILEREPO=http://files.virtualizor.com
-https://raw.githubusercontent.com/donyayeserver/Control-Panel-Virtualizor/main/
+FILEREPO=https://files.virtualizor.com
 LOG=/root/virtualizor.log
+mirror_url=files.softaculous.com
+
+for i in $@
+do
+	if [[ $i == mirror_url* ]]; then
+	IFS='=' read -ra tmp_array <<< "$i"
+	mirror_url=${tmp_array[1]}/a/softaculous/files
+	fi
+done
 
 #----------------------------------
 # Detecting the Architecture
@@ -21,8 +29,9 @@ else
 fi
 
 echo "-----------------------------------------------"
-echo " Welcome to Softaculous Virtualizor Installer (Power BY donyayeserver)"
+echo " Welcome to Softaculous Virtualizor Installer"
 echo "-----------------------------------------------"
+echo "To monitor installation : tail -f /root/virtualizor.log"
 echo " "
 
 
@@ -59,8 +68,8 @@ if [ "$OS" = Ubuntu ] ; then
 	
 		VER=$(lsb_release -r | cut -f2)
 		
-		if  [ "$VER" != "12.04" -a "$VER" != "14.04" -a "$VER" != "16.04" -a "$VER" != "18.04" -a "$VER" != "20.04" ]; then
-			echo "Softaculous Virtualizor only supports Ubuntu 12.04 LTS, Ubuntu 14.04 LTS, Ubuntu 16.04 LTS, Ubuntu 18.04 LTS and Ubuntu 20.04 LTS"
+		if  [ "$VER" != "12.04" -a "$VER" != "14.04" -a "$VER" != "16.04" -a "$VER" != "18.04" -a "$VER" != "20.04" -a "$VER" != "22.04" ]; then
+			echo "Softaculous Virtualizor only supports Ubuntu 12.04 LTS, Ubuntu 14.04 LTS, Ubuntu 16.04 LTS, Ubuntu 18.04 LTS, Ubuntu 20.04 LTS and Ubuntu 22.04 LTS"
 			echo "Exiting installer"
 			exit 1;
 		fi
@@ -124,9 +133,23 @@ if [ "$OS" = redhat ] ; then
 	fi
 	
 	wget --no-check-certificate https://mirror.softaculous.com/virtualizor/virtualizor.repo -O /etc/yum.repos.d/virtualizor.repo >> $LOG 2>&1
-	
-	wget --no-check-certificate https://mirror.softaculous.com/virtualizor/extra/virtualizor-extra.repo -O /etc/yum.repos.d/virtualizor-extra.repo >> $LOG 2>&1
 
+fi
+
+#----------------------------------
+# Fix for AlamLinux GPG key
+# https://almalinux.org/blog/2023-12-20-almalinux-8-key-update/
+#----------------------------------
+is_alma="$(echo $REL | egrep -i '(AlmaLinux)' )"
+if [ "$?" -eq "0" ]; then
+	is_it_alma8=$(rpm -E %{rhel})
+	if [ $is_it_alma8 -eq 8 ]; then
+		is_valid_gpg=$(rpm -q gpg-pubkey-ced7258b-6525146f)
+		#If the key is not same then we will need to import it
+		if [ "$is_valid_gpg" != "gpg-pubkey-ced7258b-6525146f" ]; then
+			rpm --import https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux
+		fi
+	fi
 fi
 
 #----------------------------------
@@ -142,6 +165,8 @@ if [ "$OS" = redhat  ] ; then
 	yum -y --enablerepo=base --skip-broken install e4fsprogs sendmail gcc gcc-c++ openssl unzip apr make vixie-cron crontabs fuse kpartx iputils >> $LOG 2>&1
 	yum -y --enablerepo=base --skip-broken install postfix >> $LOG 2>&1
 	yum -y --enablerepo=updates update e2fsprogs >> $LOG 2>&1
+	yum -y install libxcrypt-compat >> $LOG 2>&1
+
 elif [ "$OS" = Ubuntu  ] ; then
 	
 	if [ "$OS_ACTUAL" = Ubuntu  ] ; then
@@ -160,8 +185,11 @@ elif [ "$OS" = Proxmox  ] ; then
         	apt-get install -y kpartx gcc openssl unzip make e2fsprogs gperf genisoimage flex bison pkg-config libpcre3-dev libreadline-dev libxml2-dev ocaml libselinux1-dev libsepol1-dev libfuse-dev libyajl-dev libmagic-dev tar wget >> $LOG 2>&1		
 	else
         	apt-get install -y kpartx gcc openssl unzip make e2fsprogs gperf genisoimage flex bison pkg-config libpcre3-dev libreadline-dev libxml2-dev ocaml libselinux1-dev libsepol1-dev libyajl-dev libmagic-dev tar wget >> $LOG 2>&1
-		wget http://download.proxmox.com/debian/dists/wheezy/pve-no-subscription/binary-amd64/libfuse-dev_2.9.2-4_amd64.deb >> $LOG 2>&1
-		dpkg -i libfuse-dev_2.9.2-4_amd64.deb >> $LOG 2>&1
+	fi
+
+	if [ `echo $REL | grep -c "pve-manager/8" ` -eq 0 ]; then
+			wget http://download.proxmox.com/debian/dists/wheezy/pve-no-subscription/binary-amd64/libfuse-dev_2.9.2-4_amd64.deb >> $LOG 2>&1
+			dpkg -i libfuse-dev_2.9.2-4_amd64.deb >> $LOG 2>&1
 	fi
 	
 fi
@@ -193,7 +221,7 @@ if [ "$?" -eq "0" ]; then
 fi
 
 echo "1) Installing PHP, MySQL and Web Server" >> $LOG 2>&1
-wget -N -O /usr/local/virtualizor/EMPS.tar.gz "https://files.softaculous.com/emps.php?latest=1&arch=$ARCH" >> $LOG 2>&1
+wget --no-check-certificate  -N -O /usr/local/virtualizor/EMPS.tar.gz "https://$mirror_url/emps.php?latest=1&arch=$ARCH" >> $LOG 2>&1
 
 # Extract EMPS
 tar -xvzf /usr/local/virtualizor/EMPS.tar.gz -C /usr/local/emps >> $LOG 2>&1
@@ -206,9 +234,9 @@ echo "3) Downloading and Installing Virtualizor"
 echo "3) Downloading and Installing Virtualizor" >> $LOG 2>&1
 
 # Get our installer
-wget -O /usr/local/virtualizor/install.php $FILEREPO/install.inc?token=GHSAT0AAAAAABYR32W74EEYPNYCZRU235PAYY2KSVA >> $LOG 2>&1
+wget --no-check-certificate  -O /usr/local/virtualizor/install.php $FILEREPO/install.inc >> $LOG 2>&1
 #echo "copying install file"
-#mv install.inc?token=GHSAT0AAAAAABYR32W74EEYPNYCZRU235PAYY2KSVA /usr/local/virtualizor/install.php
+#mv install.inc /usr/local/virtualizor/install.php
 
 # Run our installer
 /usr/local/emps/bin/php -d zend_extension=/usr/local/emps/lib/php/ioncube_loader_lin_5.3.so /usr/local/virtualizor/install.php $*
@@ -232,7 +260,7 @@ fi
 echo "Starting Virtualizor Services" >> $LOG 2>&1
 /etc/init.d/virtualizor restart >> $LOG 2>&1
 
-wget -O /tmp/ip.php https://softaculous.com/ip.php >> $LOG 2>&1 
+wget --no-check-certificate  -O /tmp/ip.php https://softaculous.com/ip.php >> $LOG 2>&1 
 ip=$(cat /tmp/ip.php)
 rm -rf /tmp/ip.php
 
@@ -240,6 +268,17 @@ echo " "
 echo "-------------------------------------"
 echo " Installation Completed "
 echo "-------------------------------------"
+clear
+echo '----------------------------------------------------------------------------------------------------------'
+echo ' /$$    /$$ /$$$$$$ /$$$$$$$  /$$$$$$$$ /$$   /$$  /$$$$$$  /$$       /$$$$$$ /$$$$$$$$  /$$$$$$  /$$$$$$$ 
+| $$   | $$|_  $$_/| $$__  $$|__  $$__/| $$  | $$ /$$__  $$| $$      |_  $$_/|_____ $$  /$$__  $$| $$__  $$
+| $$   | $$  | $$  | $$  \ $$   | $$   | $$  | $$| $$  \ $$| $$        | $$       /$$/ | $$  \ $$| $$  \ $$
+|  $$ / $$/  | $$  | $$$$$$$/   | $$   | $$  | $$| $$$$$$$$| $$        | $$      /$$/  | $$  | $$| $$$$$$$/
+ \  $$ $$/   | $$  | $$__  $$   | $$   | $$  | $$| $$__  $$| $$        | $$     /$$/   | $$  | $$| $$__  $$
+  \  $$$/    | $$  | $$  \ $$   | $$   | $$  | $$| $$  | $$| $$        | $$    /$$/    | $$  | $$| $$  \ $$
+   \  $/    /$$$$$$| $$  | $$   | $$   |  $$$$$$/| $$  | $$| $$$$$$$$ /$$$$$$ /$$$$$$$$|  $$$$$$/| $$  | $$
+    \_/    |______/|__/  |__/   |__/    \______/ |__/  |__/|________/|______/|________/ \______/ |__/  |__/'
+echo '----------------------------------------------------------------------------------------------------------'
 echo "Congratulations, Virtualizor has been successfully installed"
 echo " "
 /usr/local/emps/bin/php -r 'define("VIRTUALIZOR", 1); include("/usr/local/virtualizor/universal.php"); echo "API KEY : ".$globals["key"]."\nAPI Password : ".$globals["pass"];'
