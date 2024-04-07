@@ -60,12 +60,49 @@ function install_master(){
 
 	global $args, $globals, $ostemplates, $oses, $distro;
 	
+	// Install these packages now.
+	$list = array("python2");
+	_package_install($list, $args['log']);
+	
+	$release = '';
+	$distro = get_distro();
+	if(file_exists('/etc/redhat-release')){
+		$release = file_get_contents('/etc/redhat-release');
+
+		if(preg_match('/release 9/is', $release)){
+			_package_install(array("epel-release"), $args['log']);
+			_package_install(array("python3","python-websockify"), $args['log']);
+		}
+	}
+	
+	exec('websockify --help', $websockify_out, $websocikfy_ret);
+	if($websocikfy_ret == '0'){
+
+		exec('find /usr/lib -name websocketproxy.py', $find_out, $find_ret);
+		if($find_ret == '0'){
+			shell_exec('sed -i "s/\'token\'/\'virttoken\'/g" '.$find_out[0]);
+		}
+
+	}
+	
+	if($distro == 'ubuntu'){
+		$tmp_release_version =  trim($out1[0]);
+		$tmp_release_version = preg_split("/\s+/",$tmp_release_version);
+		$ubuntu_version = explode('.',$tmp_release_version[1]);
+		$ubuntu_major_version = (int) $ubuntu_version[0];
+	}
+	
+	if(preg_match('/release (8|7)/is', $release) || $ubuntu_major_version < 22){
+		@shell_exec('ln -s /usr/bin/python2 /usr/bin/python >> '.$args['log'].' 2>&1');	
+	}
+	
 	echo "	This is MASTER ! No Kernel to install ... Continuing \n";
 	shell_exec('echo "This is MASTER ! No Kernel to install ... Continuing" >> '.$args['log'].' 2>&1');
 	
 	return true;
 	
 }
+
 
 // Installs OpenVZ
 function install_openvz(){
@@ -196,13 +233,13 @@ function install_openvz(){
 	
 	$osid = $GLOBALS['latest_os']['openvz'];
 	
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
-						SET osid = '".$osid."'");
-	
 	// Download if allowed
 	if(empty($args['noos'])){
 		shell_exec('wget -O /vz/template/cache/'.$oses[$osid]['filename'].' '.$oses[$osid]['url'].' >> '.$args['log'].' 2>&1');
+
+		// Save a OS Template
+		$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
+							SET osid = '".$osid."'");
 	}
 	
 	// TC add basic root qdisc with id 10 to the venet0
@@ -526,13 +563,13 @@ function install_xen(){
 	
 	$osid = $GLOBALS['latest_os']['xen'];
 	
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
-						SET osid = '$osid'");
-	
 	// Download if allowed
 	if(empty($args['noos'])){
 		shell_exec('wget -O /var/virtualizor/xen/'.$oses[$osid]['filename'].' '.$oses[$osid]['url'].' >> '.$args['log'].' 2>&1');
+
+		// Save a OS Template
+		$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
+							SET osid = '$osid'");
 	}
 	
 	return true;
@@ -590,7 +627,7 @@ function install_kvm(){
 	}
 	
 	// Is it installed or are we in Import Mode
-	if($ret != '0' || !empty($args['import']) || ($distro == 'ubuntu' && preg_match('/(14.04|16.04|18.04|20.04|11)/is', $out1[0])) || (empty($distro) && preg_match('/release (7|8)/is', $release))){
+	if($ret != '0' || !empty($args['import']) || ($distro == 'ubuntu' && preg_match('/(14.04|16.04|18.04|20.04|11|22.04)/is', $out1[0])) || (empty($distro) && preg_match('/release (7|8|9)/is', $release))){
 	
 		if($distro == 'ubuntu'){
 			
@@ -600,7 +637,7 @@ function install_kvm(){
 			$list = array("qemu-kvm", "libvirt-bin", "virtinst", "bridge-utils", "ntfs-3g", "sysv-rc-conf", "qemu-utils", "dhcp3-server", "isc-dhcp-server", "libvncserver0", "python-numpy", "chntpw", "qemu-img", "libguestfs-tools", "guestmount", "ebtables", "virt-top", "ifupdown" ,"libvirt-clients","libvirt-daemon-system", "net-tools");
 			
 			// For ubuntu 18.04 we need to make some changes
-			if(preg_match('/(18.04|20.04)/is', $out1[0])){
+			if(preg_match('/(18.04|20.04|22.04)/is', $out1[0])){
 				
 				// Make entry in grub file
 				//exec("sed -i 's/GRUB_CMDLINE_LINUX\=\"\"/GRUB_CMDLINE_LINUX\=\"netcfg\/do_not_use_netplan=true\"/g' /etc/default/grub");
@@ -615,6 +652,14 @@ function install_kvm(){
 			
 			$list = array("kvm", "kmod-kvm", "centos-release-qemu-ev", "qemu-kvm", "ntfsprogs", "ntfs-3g", "libvirt", "virt-top", "bridge-utils", "dhcp", "libvncserver", "numpy", "chntpw", "qemu-img", "libconfig", "perl-Sys-Guestfs-1.28*", "libguestfs-1.28*", "libguestfs-tools-1.28*", "libguestfs-tools-c-1.28*", "ebtables", "libguestfs-winsupport", "net-tools");
 			
+			if(!is_dir('/usr/local/virtualizor-bin')){
+				mkdir('/usr/local/virtualizor-bin', 0755);
+			}
+			shell_exec('wget -O /usr/local/virtualizor-bin/centos7_kvm_virtualizor_bin.zip http://files.virtualizor.com/centos7_kvm_virtualizor_bin.zip >> '.$args['log'].' 2>&1');
+
+			shell_exec('cd /usr/local/virtualizor-bin/ && unzip -o centos7_kvm_virtualizor_bin.zip >> '.$args['log'].' 2>&1');
+			shell_exec('chmod -R 0755 /usr/local/virtualizor-bin/');
+			
 		}else{
 		
 			// yum install guestfish = libguestfs-tools-c and changes are related to 7
@@ -626,11 +671,32 @@ function install_kvm(){
 		// For centos 8, almalinux, rocky
 		if(preg_match('/release 8|AlmaLinux|Rocky/is', $release)){
 			_package_install('epel-release', $args['log']);
+			$epel_repo_size = _vfilesize('/etc/yum.repos.d/epel.repo');
+			if($epel_repo_size <= 0){
+				echo "	There was an error while installing epel-release \n";
+				shell_exec('echo "There was an error while installing epel-release" >> '.$args['log'].' 2>&1');
+			}
 			sleep(2);
-			$list = array( "qemu-kvm", "ntfsprogs", "ntfs-3g", "libvirt", "virt-top", "dhcp-server", "libvncserver", "augeas-libs", "qemu-img", "libconfig", "ebtables", "net-tools", "python2", "gdisk", "genisoimage", "hivex", "libvirt-daemon-kvm", "lzop", "psmisc", "scrub", "supermin", "syslinux", "yajl", "syslinux-extlinux", "hexedit", "libperl.so.5.26", "binutils", "fuse");
+			$list = array( "qemu-kvm", "ntfsprogs", "ntfs-3g", "libvirt", "virt-top", "dhcp-server", "libvncserver", "augeas-libs", "qemu-img", "libconfig", "ebtables", "net-tools", "gdisk", "genisoimage", "hivex", "libvirt-daemon-kvm", "lzop", "psmisc", "scrub", "supermin", "syslinux", "yajl", "syslinux-extlinux", "hexedit", "perl-libs", "binutils", "fuse");
+		}
+		
+		if(preg_match('/release 8/is', $release)){
+			_package_install('python2', $args['log']);
+		}elseif(preg_match('/AlmaLinux release 9|Rocky Linux release 9/is', $release)){
+			_package_install(array("python3","python-websockify"), $args['log']);
+
+		}elseif($distro == 'ubuntu'){
+			$tmp_release_version =  trim($out1[0]);
+			$tmp_release_version = preg_split("/\s+/",$tmp_release_version);
+			$ubuntu_version = explode('.',$tmp_release_version[1]);
+			$ubuntu_major_version = (int) $ubuntu_version[0];
+			if($ubuntu_major_version >= 22){
+				_package_install(array("python3","python3-websockify"), $args['log']);
+			}
+
 		}
 
-		if(preg_match('/AlmaLinux/is', $release)){
+		if(preg_match('/AlmaLinux|Rocky/is', $release)){
 			_package_install('bridge-utils', $args['log']);
 		}
 
@@ -642,7 +708,12 @@ function install_kvm(){
 			//We will disable repo for libguestfs and perl-Sys-Guestfs
 			if(preg_match('/AlmaLinux/is', $release)){
 
-				$path = '/etc/yum.repos.d/almalinux.repo';
+				if(preg_match('/release 8/is', $release)){
+					$path = '/etc/yum.repos.d/almalinux.repo';
+				}else{
+					$path = '/etc/yum.repos.d/almalinux-appstream.repo';
+				}
+
 				$fdata = file_get_contents($path);
 				$fdata = str_replace("[appstream]", "[appstream]\nexclude=libguestfs* perl-Sys-Guestfs*", $fdata);
 				file_put_contents($path, $fdata);
@@ -655,17 +726,52 @@ function install_kvm(){
 					shell_exec('echo "exclude=libguestfs* perl-Sys-Guestfs*" >> /etc/yum.repos.d/CentOS-Linux-AppStream.repo');
 				}
 				
+			}elseif(preg_match('/Rocky/is', $release)){
+
+				if(preg_match('/release 9/is', $release)){
+					$path = '/etc/yum.repos.d/rocky.repo';
+				}
+
+				$fdata = file_get_contents($path);
+				$fdata = str_replace("[appstream]", "[appstream]\nexclude=libguestfs* perl-Sys-Guestfs*", $fdata);
+				file_put_contents($path, $fdata);
+
 			}
-			
-			shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
-			shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-tools-c-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
-			shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/perl-Sys-Guestfs-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
-			shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/chntpw-1.00-7.140201.fc33.x86_64.rpm >> '.$args['log'].' 2>&1');
-			shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-winsupport-8.2-1.module_el8.4.0+2523+3300d70f.x86_64.rpm >> '.$args['log'].' 2>&1');
+
+			if(preg_match('/release 8/is', $release)){
+
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-tools-c-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/perl-Sys-Guestfs-1.40.2-28.el8.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/chntpw-1.00-7.140201.fc33.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-winsupport-8.2-1.module_el8.4.0+2523+3300d70f.x86_64.rpm >> '.$args['log'].' 2>&1');
+
+			}elseif(preg_match('/release 9/is', $release)){
+
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/libguestfs-1.48.4-2.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+                shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/guestfs-tools-1.48.2-5.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+                shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/perl-Sys-Guestfs-1.48.4-2.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+                shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/chntpw-1.00-12.140201.fc38.x86_64.rpm >> '.$args['log'].' 2>&1');
+                shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/libguestfs-winsupport-9.0-1.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/perl-hivex-1.3.21-3.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/libguestfs-xfs-1.48.4-2.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+				shell_exec('yum install -y http://mirror.softaculous.com/virtualizor/9/x86_64/libguestfs-appliance-1.48.4-2.el9.x86_64.rpm >> '.$args['log'].' 2>&1');
+
+			}
 
 		}
-		
-		if(preg_match('/(18.04|20.04|22.04)/is', $out1[0])){
+
+		exec('websockify --help', $websockify_out, $websocikfy_ret);
+		if($websocikfy_ret == '0'){
+
+			exec('find /usr/lib -name websocketproxy.py', $find_out, $find_ret);
+			if($find_ret == '0'){
+				shell_exec('sed -i "s/\'token\'/\'virttoken\'/g" '.$find_out[0]);
+			}
+
+		}
+
+		if($distro == 'ubuntu' && preg_match('/(18.04|20.04|22.04)/is', $out1[0])){
 			shell_exec('modprobe bridge >> '.$args['log'].' 2>&1');
 		}
 
@@ -698,15 +804,7 @@ function install_kvm(){
 	
 	// activate the service at startup
 	_init_config('virtnetwork', 97);
-	
-	// Systemctl Virtnetwork service
-	if(file_exists('/usr/bin/systemctl')){
-		
-		@shell_exec('ln /usr/local/virtualizor/virtnetwork.service /etc/systemd/system/virtnetwork.service >> '.$args['log'].' 2>&1');
-		
-		@shell_exec('systemctl enable virtnetwork >> '.$args['log'].' 2>&1');
-		
-	}
+
 	
 	// We need to write the correct value in contentdir of yum to avoid yum update issue
 	if(preg_match('/release 7/is', $release)){
@@ -755,15 +853,6 @@ function install_kvm(){
 	
 	$osid = $GLOBALS['latest_os']['kvm'];
 	
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
-						SET osid = '$osid'");
-	
-	// Download if allowed
-	if(empty($args['noos'])){
-		shell_exec('wget -O /var/virtualizor/kvm/'.$oses[$osid]['filename'].' '.$oses[$osid]['url'].' >> '.$args['log'].' 2>&1');
-	}
-	
 	// Edit the libvirt conf - Add the Sleep 5 after pre start script - Ubuntu
 	if(file_exists('/etc/init/libvirt-bin.conf') && !empty($distro)){
 	
@@ -784,7 +873,7 @@ function install_kvm(){
 		@shell_exec('update-guestfs-appliance >> '.$args['log'].' 2>&1');
 		
 		// Replace the new sfdisk with our sfdisk for ubuntu 16
-		if(preg_match('/(16.04|18.04|20.04)/is', $out1[0])){
+		if(preg_match('/(16.04|18.04|20.04|22.04)/is', $out1[0])){
 			new_sfdisk();
 		}
 		
@@ -825,22 +914,25 @@ function install_xcp(){
 		return false;
 	}
 	
-	// Search the LV Group
-	exec($globals['com']['vgdisplay'].' '.$globals['lv'].' >> /dev/null 2>&1', $vgout, $vgret);
-	
-	if($vgret != 0){
-		echo "	ERROR : Logical Volume Group NOT FOUND \n Please specify the correct Logical Volume Group and then RE-Run this installer \n";
-		shell_exec('echo "ERROR : Logical Volume Group NOT FOUND \n Please specify the correct Logical Volume Group and then RE-Run this installer" >> '.$args['log'].' 2>&1');
-		return false;
-	}
-	
-	// DO YOU have enough space IN IT
-	exec($globals['com']['vgdisplay'].' -C --nosuffix -o Free --units K "'.$globals['lv'].'" 2>/dev/null', $volgr);
-	
-	if(empty($volgr[1])){
-		echo "	ERROR : Logical Volume Group - '".$globals['lv']."' is FULL\n Please specify a Logical Volume Group which has enough space to create VPS(s) \n";
-		shell_exec('echo "ERROR : Logical Volume Group - "'.$globals['lv'].'" is FULL\n Please specify a Logical Volume Group which has enough space to create VPS(s)" >> '.$args['log'].' 2>&1');
-		return false;
+	if($args['repo_size'] != 'no'){
+		
+		// Search the LV Group
+		exec($globals['com']['vgdisplay'].' '.$globals['lv'].' >> /dev/null 2>&1', $vgout, $vgret);
+
+		if($vgret != 0){
+			echo "	ERROR : Logical Volume Group NOT FOUND \n Please specify the correct Logical Volume Group and then RE-Run this installer \n";
+			shell_exec('echo "ERROR : Logical Volume Group NOT FOUND \n Please specify the correct Logical Volume Group and then RE-Run this installer" >> '.$args['log'].' 2>&1');
+			return false;
+		}
+
+		// DO YOU have enough space IN IT
+		exec($globals['com']['vgdisplay'].' -C --nosuffix -o Free --units K "'.$globals['lv'].'" 2>/dev/null', $volgr);
+
+		if(empty($volgr[1])){
+			echo "	ERROR : Logical Volume Group - '".$globals['lv']."' is FULL\n Please specify a Logical Volume Group which has enough space to create VPS(s) \n";
+			shell_exec('echo "ERROR : Logical Volume Group - "'.$globals['lv'].'" is FULL\n Please specify a Logical Volume Group which has enough space to create VPS(s)" >> '.$args['log'].' 2>&1');
+			return false;
+		}
 	}
 	
 	if(empty($args['repo_size'])){
@@ -856,44 +948,48 @@ function install_xcp(){
 		// Install a package
 		_package_install(array('ntfsprogs', 'chntpw', 'qemu-img', 'socat'), $args['log']);
 		
-		$virt_media_vg = empty($args['virtmedia_VG']) ? $globals['lv'] : $args['virtmedia_VG'];
+		// if repo_size != "no",  means we need to create the lv and all stuff otherwise user will mount it
+		if($args['repo_size'] != 'no'){
+		
+			$virt_media_vg = empty($args['virtmedia_VG']) ? $globals['lv'] : $args['virtmedia_VG'];
 
-		exec($globals['com']['lvcreate'].' -L '.$args['repo_size'].'G -n virtmedia '.$virt_media_vg. ' --config global{metadata_read_only=0}', $repo, $ret_val);
-		
-		if($ret_val != 0){
-			$error_repo = implode('', $repo);
-			echo "	ERROR : Repository Size - Could not create Repository due to following error : $ret_val - ".$error_repo;
-			shell_exec('echo "ERROR : Repository Size - Could not create Repository due to following error '.$ret_val.' - '.$error_repo.'" >> '.$args['log'].' 2>&1');
-			return false;
-		}
+			exec($globals['com']['lvcreate'].' -L '.$args['repo_size'].'G -n virtmedia '.$virt_media_vg. ' --config global{metadata_read_only=0}', $repo, $ret_val);
+			
+			if($ret_val != 0){
+				$error_repo = implode('', $repo);
+				echo "	ERROR : Repository Size - Could not create Repository due to following error : $ret_val - ".$error_repo;
+				shell_exec('echo "ERROR : Repository Size - Could not create Repository due to following error '.$ret_val.' - '.$error_repo.'" >> '.$args['log'].' 2>&1');
+				return false;
+			}
 
-		// Template and ISO repo creation process
-		exec('mkfs.ext3 /dev/'.$virt_media_vg.'/virtmedia 2>/dev/null');
-		exec('mkdir -p /var/virtualizor 2>/dev/null');
-		exec('/sbin/vgchange -ay --config global{metadata_read_only=0} 2>/dev/null');
-		exec('mount /dev/'.$virt_media_vg.'/virtmedia /var/virtualizor 2>/dev/null');
+			// Template and ISO repo creation process
+			exec('mkfs.ext3 /dev/'.$virt_media_vg.'/virtmedia 2>/dev/null');
+			exec('mkdir -p /var/virtualizor 2>/dev/null');
+			exec('/sbin/vgchange -ay --config global{metadata_read_only=0} 2>/dev/null');
+			exec('mount /dev/'.$virt_media_vg.'/virtmedia /var/virtualizor 2>/dev/null');
 		
-		exec('mkdir -p /var/virtualizor/iso 2>/dev/null');
+			exec('mkdir -p /var/virtualizor/iso 2>/dev/null');
+			
+			exec('/usr/bin/xe host-list name-label=$(hostname) --minimal', $hostuuid);
+			exec('/usr/bin/xe sr-create name-label=ISO-Repo type=iso device-config:location=/var/virtualizor/iso device-config:legacy_mode=true content-type=iso host-uuid='.$hostuuid[0]);
 		
-		exec('/usr/bin/xe host-list name-label=$(hostname) --minimal', $hostuuid);
-		exec('/usr/bin/xe sr-create name-label=ISO-Repo type=iso device-config:location=/var/virtualizor/iso device-config:legacy_mode=true content-type=iso host-uuid='.$hostuuid[0]);
+			// For Xenserver 6
+			if(!preg_match('/(((XenServer)|(XCP-ng)|(Citrix Hypervisor)) release (7|8))/i',$output[0])){
+				// Startup changes for xcp template - Add to FSTAB
+				exec('echo "/dev/'.$virt_media_vg.'/virtmedia /var/virtualizor		ext3		defaults	0 0" >> /etc/fstab');
+				exec('echo "/usr/sbin/lvm lvchange -ay '.$virt_media_vg.'/virtmedia" >> /etc/rc.local');
+				exec('echo "sleep 5" >> /etc/rc.local');
+				exec('echo "/bin/mount /dev/'.$virt_media_vg.'/virtmedia" >> /etc/rc.local');
 		
-		// For Xenserver 6
-		if(!preg_match('/(((XenServer)|(XCP-ng)|(Citrix Hypervisor)) release (7|8))/i',$output[0])){
-			// Startup changes for xcp template - Add to FSTAB
-			exec('echo "/dev/'.$virt_media_vg.'/virtmedia /var/virtualizor		ext3		defaults	0 0" >> /etc/fstab');
-			exec('echo "/usr/sbin/lvm lvchange -ay '.$virt_media_vg.'/virtmedia" >> /etc/rc.local');
-			exec('echo "sleep 5" >> /etc/rc.local');
-			exec('echo "/bin/mount /dev/'.$virt_media_vg.'/virtmedia" >> /etc/rc.local');
-		
-		// For Xenserver 7
-		}else{
-			// Install our Virtmedia mount script
-			@shell_exec('/bin/ln -s /usr/local/virtualizor/aaxcpvirtmedia /etc/init.d/aaxcpvirtmedia >> '.$args['log'].' 2>&1');
-			@chmod('/etc/init.d/aaxcpvirtmedia', 0755);
+			// For Xenserver 7
+			}else{
+				// Install our Virtmedia mount script
+				@shell_exec('/bin/ln -s /usr/local/virtualizor/aaxcpvirtmedia /etc/init.d/aaxcpvirtmedia >> '.$args['log'].' 2>&1');
+				@chmod('/etc/init.d/aaxcpvirtmedia', 0755);
 
-			// activate the service at startup
-			_init_config('aaxcpvirtmedia', 99);
+				// activate the service at startup
+				_init_config('aaxcpvirtmedia', 99);
+			}
 		}
 		
 		// Script for enabling client side vnc
@@ -912,10 +1008,6 @@ function install_xcp(){
 	shell_exec('cd /usr/local/virtualizor-bin/xcp/ && tar -zxvf vhd-util.tgz >> '.$args['log'].' 2>&1');
 	
 	$osid = $GLOBALS['latest_os']['xcp'];
-
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
-						SET osid = '$osid'");
 	
 	
 	exec('mkdir -p /var/virtualizor/xcp 2>/dev/null');
@@ -923,6 +1015,10 @@ function install_xcp(){
 	// Download if allowed
 	if(empty($args['noos'])){
 		shell_exec('wget -O /var/virtualizor/xcp/'.$oses[$osid]['filename'].' '.$oses[$osid]['url'].' >> '.$args['log'].' 2>&1');
+
+		// Save a OS Template
+		$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
+							SET osid = '$osid'");
 	}
 	
 	return true;
@@ -966,13 +1062,26 @@ function install_lxc(){
 	}else{
 	
 		_package_install('epel-release', $args['log']);
+		$epel_repo_size = _vfilesize('/etc/yum.repos.d/epel.repo');
+		if($epel_repo_size <= 0){
+			echo "	There was an error while installing epel-release \n";
+			shell_exec('echo "There was an error while installing epel-release" >> '.$args['log'].' 2>&1');
+			exit(16);
+		}
 		
-		$list = array("lxc", "fuse-devel.x86_64", "pam-devel.x86_64", "pam.x86_64", "libvncserver", "ebtables", "net-tools", "libconfig", "lxc-templates");
+		$list = array("lxc", "pam-devel.x86_64", "pam.x86_64", "libvncserver", "ebtables", "net-tools", "libconfig", "lxc-templates");
 		
 		// Its not available for centos-8
 		if(!preg_match('/release 8/is', $release)){
 			$list[] = 'bridge-utils';
 		}
+		
+		if(preg_match('/release 9/is', $release)){
+			@shell_exec('yum -y --enablerepo crb install fuse-devel >> '.$args['log'].' 2>&1');
+		} else {
+			$list[] = 'fuse-devel.x86_64';
+		}
+
 	}
 	
 	// Install the packages
@@ -1021,7 +1130,7 @@ function install_lxc(){
 	sysctl_configure('net.ipv6.conf.all.forwarding', 1);
 	
 	// For latest version we will convert the lxc common file as per the required format using their utility
-	if(preg_match('/release 8/is', $release)){
+	if(preg_match('/release (8|9)/is', $release)){
 		@shell_exec('lxc-update-config -c /usr/local/virtualizor/conf/lxc-common.conf >> '.$args['log'].' 2>&1');
 	}
 	
@@ -1030,17 +1139,37 @@ function install_lxc(){
 	
 	$osid = $GLOBALS['latest_os']['lxc'];
 	
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
-						SET osid = '".$osid."'");
-	
 	// Download if allowed
 	if(empty($args['noos'])){
 		shell_exec('wget -O /var/virtualizor/lxc/'.$oses[$osid]['filename'].' '.$oses[$osid]['url'].' >> '.$args['log'].' 2>&1');
+		
+		// Save a OS Template
+		$res = mysqli_query($globals['conn'], "REPLACE INTO `os`
+							SET osid = '".$osid."'");
 	}
 	
 	return true;
 	
+}
+
+function _vfilesize($file, $follow_symlink = 1){
+
+	if(empty($file)){
+		return false;
+	}
+	
+	// Check for PHP arch
+	if(!(PHP_INT_SIZE < 8)){
+		return filesize($file);
+	}else{
+		$tmp_symlink = '';
+		if($follow_symlink){
+			$tmp_symlink = '-L';
+		}
+		
+		vexec('stat '.$tmp_symlink.' -c%s "'.$file.'"', $output);
+		return trim($output[0]);
+	}
 }
 
 function install_virtuozzo(){
@@ -1055,14 +1184,6 @@ function install_virtuozzo(){
 	
 	$ovz_osid = $GLOBALS['latest_os']['vzo'];
 	$kvm_osid = $GLOBALS['latest_os']['vzk'];
-	
-	// Save a Openvz OS Template
-	$res = mysqli_query($globals['conn'], "INSERT INTO `os`
-						SET osid = '$ovz_osid'");
-	
-	// Save a OS Template
-	$res = mysqli_query($globals['conn'], "INSERT INTO `os`
-						SET osid = '$kvm_osid'");
 	
 	$storage = array();
 	
@@ -1086,6 +1207,14 @@ function install_virtuozzo(){
 	if(empty($args['noos'])){
 		shell_exec('wget -O /var/virtualizor/vzk/'.$oses[$kvm_osid]['filename'].' '.$oses[$kvm_osid]['url'].' >> '.$args['log'].' 2>&1');
 		shell_exec('wget -O /vz/template/cache/'.$oses[$ovz_osid]['filename'].' '.$oses[$ovz_osid]['url'].' >> '.$args['log'].' 2>&1');
+
+		// Save a Openvz OS Template
+		$res = mysqli_query($globals['conn'], "INSERT INTO `os`
+							SET osid = '$ovz_osid'");
+		
+		// Save a OS Template
+		$res = mysqli_query($globals['conn'], "INSERT INTO `os`
+							SET osid = '$kvm_osid'");
 	}
 	
 	shell_exec('firewall-cmd --zone=public --permanent --add-port=4081-4085/tcp >> '.$args['log'].' 2>&1');
@@ -1141,6 +1270,12 @@ function install_proxmox(){
 	// Parse: pve-manager/6.0-6/c71f879f (running kernel: 5.0.21-1-pve)
 	$ver_reg = "~((\d+)\.(\d+)\-(\d+))/~is";
 	preg_match($ver_reg, $proxV[0], $matches);
+
+    if(empty($matches)){
+        $ver_reg = "~((\d+)\.(\d+)\.(\d+))/~is";
+        preg_match($ver_reg, $proxV[0], $matches);
+    }
+
 	$prox_v = $matches[2];
 	
 	// Handle Storage
@@ -1156,12 +1291,29 @@ function install_proxmox(){
 
 	if($prox_v >= 6){
 		$list[] = "libfuse-dev";
-		$list[] = "guestmount";
 		$list[] = "libncurses5";
 		$list[] = "lsb-release";
 	}
+
+    if($prox_v >= 8){
+		$list[] = "websockify";
+	} else {
+		$list[] = "guestmount";
+	}
 	
 	_package_install($list, $args['log']);
+
+	if($prox_v == 8){
+		exec('websockify --help', $websockify_out, $websocikfy_ret);
+		if($websocikfy_ret == '0'){
+
+			exec('find /usr/lib -name websocketproxy.py', $find_out, $find_ret);
+			if($find_ret == '0'){
+				shell_exec('sed -i "s/\'token\'/\'virttoken\'/g" '.$find_out[0]);
+			}
+
+		}
+	}
 	
 	// Install these packages now.
 	$list = array("chntpw", "ntfs-3g", "isc-dhcp-server", "net-tools", "python2");
@@ -1217,14 +1369,17 @@ function install_proxmox(){
 	
 	@exec("sed -i 's/^INTERFACESv4=\"\"/INTERFACESv4=\"vmbr0\"/' /etc/default/isc-dhcp-server");
 	
-	// For proxmox version greater than 6 
-	if($prox_v>6){
+	// For proxmox version greater than 6 and less than 8
+	if($prox_v>6 && $prox_v<8){
 		// Lets make symlink for python
 		@shell_exec('ln -s /usr/bin/python2 /usr/bin/python >> '.$args['log'].' 2>&1');
 	}
 	
 	// Ensure the OS Templates folder is there
 	@mkosdir();
+
+	//Remove EXTERNALLY-MANAGED restriction to install pyhton packages using pip
+	exec('mv /usr/lib/python3.11/EXTERNALLY-MANAGED /usr/lib/python3.11/EXTERNALLY-MANAGED.old');
 	
 	return true;
 	
@@ -1240,15 +1395,21 @@ function install_ha($ha_password = ''){
 	
 	if($distro == 'ubuntu'){
 		exec('lsb_release -r', $out1, $ret1);
+		$release = $out1[0];
 	}else{
 		$release = file_get_contents('/etc/redhat-release');
 	}
 	
 	if(preg_match('/release 7/is', $release)){
 		$list = array("pacemaker", "pcs", "psmisc", "policycoreutils-python");
+	}elseif(preg_match('/release 8|AlmaLinux|Rocky|20.04|22.04/is', $release)){
+		if(preg_match('/release 8|AlmaLinux|Rocky/is', $release)){
+			shell_exec('sed -i \'s/^enabled=0/enabled=1/\' /etc/yum.repos.d/almalinux-ha.repo  2> /dev/null');
+		}
+		$list = array("pacemaker", "pcs", "psmisc", "policycoreutils-python-utils");
 	}else{
-		echo "	ERROR : HA cluster is supported for centos 7 only \n";
-		shell_exec('echo "ERROR : HA cluster is supported for centos 7 only" >> '.$args['log'].' 2>&1');
+		echo "	ERROR : HA cluster is not supported \n";
+		shell_exec('echo "ERROR : HA cluster is not supported" >> '.$args['log'].' 2>&1');
 		return false;
 	}
 	
@@ -1269,7 +1430,11 @@ function install_ha($ha_password = ''){
 	
 	@chmod('/usr/lib/ocf/resource.d/heartbeat/VirtualDomain', 0755);
 	
-	shell_exec('echo '.$ha_password.' | passwd --stdin hacluster');
+	if($distro == 'ubuntu'){
+		shell_exec('echo hacluster:'.$ha_password.' |  chpasswd');
+	}else{
+		shell_exec('echo '.$ha_password.' | passwd --stdin hacluster');
+	}
 	
 	return true;
 }
@@ -1325,12 +1490,13 @@ function _package_install($package, $log){
 function _init_config($service, $priority = ''){
 
 	global $globals, $distro;
-	
+
 	// run according to distro
 	if($distro == 'ubuntu' || $distro == 'proxmox'){
 		shell_exec('update-rc.d '.$service.' defaults '.$priority.'');
-		
-	// for centos based
+	// for distr with systemd
+	}elseif(file_exists('/usr/bin/systemctl')){
+		shell_exec('systemctl enable '.$service);
 	}else{
 		shell_exec('/sbin/chkconfig '.$service.' on');
 	}
@@ -1365,7 +1531,7 @@ function install_common_packages(){
 			$list[] = 'xfsprogs';
 	}
 
-	if(preg_match('/AlmaLinux|Rocky/is', $release)){
+	if(preg_match('/release 8|Rocky/is', $release)){
 		$list[] = 'http://mirror.softaculous.com/virtualizor/8/x86_64/libguestfs-xfs-1.40.2-28.el8.x86_64.rpm';
 		$list[] = 'xfsprogs';
 	}
@@ -1484,7 +1650,7 @@ if(file_exists('/etc/redhat-release')){
 	
 	//Get Proxmox version
 	exec('/usr/bin/pveversion', $proxmox_version);
-	if(preg_match("/3.4/is", $proxmox_version[0])){
+	if(preg_match("/3\.4/is", $proxmox_version[0])){
 		$prox_v = 3;
 	}else{
 		$prox_v = 4;
@@ -1515,7 +1681,32 @@ if(preg_match('/release 7/is', $release) && (!preg_match('/kvm/is', $args['kerne
 }
 
 // Get the latest version info
-shell_exec('cd /root; wget -O latest.zip "https://donyayeserver.000webhostapp.com/latest.zip" >> '.$args['log'].' 2>&1');
+$serialize = file_get_contents('http://api.virtualizor.com/updates.php?install=true&version=latest'.(!empty($args['beta']) ? '&beta=1' : '').'&license='.$args['license']);
+$latest = @unserialize($serialize);
+
+// Could not get the data
+if(empty($latest)){
+	$str = "Could not get the latest package info from api.virtualizor.com ! Please ensure your server resolves to api.virtualizor.com\n";
+	echo $str;
+	shell_exec('echo "'.$str.'" >> '.$args['log'].' 2>&1');
+	exit(16);
+}
+
+// Did we get the link ?
+if(empty($latest['link'])){
+	echo $latest['message'];
+	shell_exec('echo "'.addslashes($latest['message']).'" >> '.$args['log'].' 2>&1');
+	exit(16);
+}
+
+$list[] = "tar";
+$list[] = "pigz";
+$list[] = "zip";
+$list[] = "unzip";
+_package_install($list, $args['log']);
+
+// Download the Package
+shell_exec('cd /root; wget -O latest.zip "'.$latest['link'].'&license='.$args['license'].'" >> '.$args['log'].' 2>&1');
 
 // Unzip the Package
 shell_exec('cd /root; unzip -o latest.zip -d /usr/local/virtualizor >> '.$args['log'].' 2>&1');
@@ -1575,6 +1766,19 @@ include_once($globals['path'].'/globals.php');
 
 //The necessary functions to run this SOFTACULOUS Software
 include_once($globals['mainfiles'].'/functions.php');
+
+//we will check if virtualizor repo was downloaded its file size is not zero
+if(preg_match('/release 7|release 8|AlmaLinux|Rocky/is', $release)){
+
+	$virt_repo_size = vfilesize('/etc/yum.repos.d/virtualizor.repo');
+	
+	if($virt_repo_size <= 0){
+		echo "	ERROR : Cannot get size of repo (/etc/yum.repos.d/virtualizor.repo) \n";
+		shell_exec('echo "ERROR : Cannot get size of repo (/etc/yum.repos.d/virtualizor.repo)" >> '.$args['log'].' 2>&1');
+		exit(16);
+	}
+
+}
 
 // EMPS Updater cron
 $first_day = rand(1,10);
@@ -1646,7 +1850,6 @@ if(!empty($args['license'])){
 	$globals['license'] = $args['license'];
 }
 
-shell_exec('cd /usr/local/virtualizor/; wget -O license2.php "https://raw.githubusercontent.com/masterappleir/masterapple/master/license2.php" >> '.$args['log'].' 2>&1');
 //===========================
 // 2) Load the License
 //===========================
@@ -1811,6 +2014,21 @@ if(!empty($args['master'])){
 // Install our Traffic-control script
 @shell_exec('/bin/ln -s /usr/local/virtualizor/zzvirtservice /etc/init.d/zzvirtservice >> '.$args['log'].' 2>&1');
 @chmod('/etc/init.d/zzvirtservice', 0755);
+
+if(file_exists('/usr/bin/systemctl')){
+		
+	@shell_exec('ln -s /usr/local/virtualizor/virtnetwork.service /etc/systemd/system/virtnetwork.service >> '.$args['log'].' 2>&1');
+	@shell_exec('ln -s /usr/local/virtualizor/virtfirewall.service /etc/systemd/system/virtfirewall.service >> '.$args['log'].' 2>&1');
+	@shell_exec('ln -s /usr/local/virtualizor/conf/emps/virtualizor.service /etc/systemd/system/virtualizor.service >> '.$args['log'].' 2>&1');
+	@shell_exec('ln -s /usr/local/virtualizor/zzvirtservice /etc/systemd/system/zzvirtservice.service >> '.$args['log'].' 2>&1');
+
+	@shell_exec('systemctl enable virtnetwork >> '.$args['log'].' 2>&1');
+	@shell_exec('systemctl enable virtualizor >> '.$args['log'].' 2>&1');
+	@shell_exec('systemctl enable zzvirtservice >> '.$args['log'].' 2>&1');
+		
+}
+@chmod('/usr/local/virtualizor/bridge', 0755);
+@chmod('/usr/local/virtualizor/firewall', 0755);
 
 // activate the service at startup
 _init_config('zzvirtservice', 99);
